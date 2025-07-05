@@ -1,0 +1,64 @@
+#8
+name: Istory Deploy to AWS EKS DEV
+on:
+  push:
+    branches: ['main', 'test']
+permissions:
+  contents: read
+  actions: read
+  packages: write
+jobs:
+  build:
+    if: contains(github.event.head_commit.message, '[deploy-dev]') # 특정 태그에만 실행
+    runs-on: ubuntu-latest
+    environment: k8s-dev # 환경 변수 및 시크릿 저장공간
+    env:
+      DOCKER_IMAGE: ${{ secrets.DOCKER_USERNAME }}/istory
+      DOCKER_TAG: ${{ github.run_number }}
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          # root 계정 비밀번호
+          MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }} 
+          # 사용자 계정
+          MYSQL_USER: ${{ secrets.MYSQL_USER }} # user
+          # 사용자 계정 비밀번호
+          MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
+          # 사용자 계정 데이터베이스
+          MYSQL_DATABASE: ${{ secrets.MYSQL_DATABASE }} # istory
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+    steps:
+      - name: AWS CLI ActionSet 설정
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: kubectl 설치
+        run: |
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+
+      - name: kubeconfig 업데이트
+        run: |
+          aws eks update-kubeconfig --region ${{ secrets.AWS_REGION }} --name ${{ secrets.K8S_CLUSTER_NAME }}
+
+      - name: kustomize 설치
+        run: |
+          curl -s https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh | bash
+          sudo mv kustomize /usr/local/bin
+
+      - name: JDK 17 설치
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
